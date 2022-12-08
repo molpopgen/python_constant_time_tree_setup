@@ -267,49 +267,49 @@ class Tree:
     #         u = v
     #         v = self.parent[v]
 
-    # def run(self):
-    #     sequence_length = self.sequence_length
-    #     M = self.edges_left.shape[0]
-    #     in_order = self.edge_insertion_order
-    #     out_order = self.edge_removal_order
-    #     edges_left = self.edges_left
-    #     edges_right = self.edges_right
-    #     edges_parent = self.edges_parent
-    #     edges_child = self.edges_child
+    def advance(self, indexes: TreeIndex, tree_index: int):
+        sequence_length = self.sequence_length
+        M = self.edges_left.shape[0]
+        in_order = self.edge_insertion_order
+        out_order = self.edge_removal_order
+        edges_left = self.edges_left
+        edges_right = self.edges_right
+        edges_parent = self.edges_parent
+        edges_child = self.edges_child
 
-    #     j = 0
-    #     k = 0
-    #     left = 0
+        j = indexes.edge_insertion_index[tree_index]
+        k = indexes.edge_removal_index[tree_index]
+        left = indexes.tree_left[tree_index]
 
-    #     while j < M or left <= sequence_length:
-    #         while k < M and edges_right[out_order[k]] == left:
-    #             p = edges_parent[out_order[k]]
-    #             c = edges_child[out_order[k]]
-    #             self.flush_mrcas(p, c, left)
-    #             self.remove_edge(p, c)
-    #             self.update_sample_list(p)
-    #             k += 1
-    #         # TODO not sure if this is necessary or correct here, needs
-    #         # to be validated. Note <= sequence_length above for left also.
-    #         if k == M:
-    #             break
-    #         while j < M and edges_left[in_order[j]] == left:
-    #             p = edges_parent[in_order[j]]
-    #             c = edges_child[in_order[j]]
-    #             self.insert_edge(p, c)
-    #             self.update_sample_list(p)
-    #             self.start_mrcas(p, c, left)
-    #             j += 1
-    #         right = sequence_length
-    #         if j < M:
-    #             right = min(right, edges_left[in_order[j]])
-    #         if k < M:
-    #             right = min(right, edges_right[out_order[k]])
-    #         # print(left, right)
-    #         # print(self)
-    #         # yield left, right
-    #         left = right
-    #     return self.divergence
+        while j < M or left <= sequence_length:
+            while k < M and edges_right[out_order[k]] == left:
+                p = edges_parent[out_order[k]]
+                c = edges_child[out_order[k]]
+                self.remove_edge(p, c)
+                # self.update_sample_list(p)
+                k += 1
+            # TODO not sure if this is necessary or correct here, needs
+            # to be validated. Note <= sequence_length above for left also.
+            if k == M:
+                break
+            while j < M and edges_left[in_order[j]] == left:
+                p = edges_parent[in_order[j]]
+                c = edges_child[in_order[j]]
+                self.insert_edge(p, c)
+                # self.update_sample_list(p)
+                j += 1
+            right = sequence_length
+            if j < M:
+                right = min(right, edges_left[in_order[j]])
+            if k < M:
+                right = min(right, edges_right[out_order[k]])
+            # print(left, right)
+            # print(self)
+            # yield left, right
+            left = right
+
+            # NOTE: I am so lazy
+            break
 
 
 def make_tree_at_given_index(ts: tskit.TreeSequence, indexes: TreeIndex, tree_index: int) -> Tree:
@@ -366,6 +366,21 @@ def compare_perf():
             assert np.array_equal(
                 tree.right_child, tsktree.right_child_array[:ts.num_nodes]), \
                 f"{tree.right_child} != {tsktree.right_child_array}"
+
+            # FIXME: the laziness here is painful
+            dummy = i + 1
+            while tsktree.next():
+                tree.advance(indexes, dummy)
+                assert np.array_equal(
+                    tree.parent, tsktree.parent_array[:ts.num_nodes]), \
+                    f"{tree.parent} != {tsktree.parent_array}"
+                assert np.array_equal(
+                    tree.left_child, tsktree.left_child_array[:ts.num_nodes]), \
+                    f"{tree.left_child} != {tsktree.left_child_array}"
+                assert np.array_equal(
+                    tree.right_child, tsktree.right_child_array[:ts.num_nodes]), \
+                    f"{tree.right_child} != {tsktree.right_child_array}"
+                dummy += 1
 
 
 if __name__ == "__main__":
