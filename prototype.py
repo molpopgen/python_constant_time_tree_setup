@@ -209,7 +209,7 @@ class Tree:
             left = right
 
 
-def make_tree_at_given_index(ts: tskit.TreeSequence, tree_index: int) -> Tree:
+def make_tree(ts: tskit.TreeSequence) -> Tree:
     tree = Tree(
         ts.num_nodes,
         ts.num_trees,
@@ -222,7 +222,6 @@ def make_tree_at_given_index(ts: tskit.TreeSequence, tree_index: int) -> Tree:
         edge_insertion_order=ts.indexes_edge_insertion_order,
         edge_removal_order=ts.indexes_edge_removal_order,
         sequence_length=ts.sequence_length)
-    tree.seek_to_index(tree_index)
     return tree
 
 
@@ -248,8 +247,9 @@ def compare_perf():
             time_lib = time.perf_counter() - before
             assert tsktree.index == i
 
+            tree = make_tree(ts)
             before = time.perf_counter()
-            tree = make_tree_at_given_index(ts, i)
+            tree.seek_to_index(i)
             time_prototype = time.perf_counter() - before
             # print(i, ts.num_trees, time_lib, time_prototype)
             assert len(tsktree.parent_array) == len(tree.parent) + 1
