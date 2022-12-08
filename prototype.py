@@ -109,38 +109,17 @@ class Tree:
             self.left_sample[u] = j
             self.right_sample[u] = j
 
-    def initialize_to_index(self, indexes: TreeIndex, index: int):
-        raise NotImplementedError
+    def seek_to_index(self, indexes: TreeIndex, tree_index: int):
+        insertion = self.edge_insertion_order
+        edges_left = self.edges_left
+        edges_right = self.edges_right
+        edges_parent = self.edges_parent
+        edges_child = self.edges_child
+        pos = indexes.tree_left[tree_index]
 
-    # Doesn't work in compiled mode, but handy for debugging
-    # def __str__(self):
-    #     fmt = "{:<5}{:>8}{:>8}{:>8}{:>8}{:>8}{:>8}{:>8}{:>8}\n"
-    #     s = fmt.format(
-    #         "node",
-    #         "parent",
-    #         "lsib",
-    #         "rsib",
-    #         "lchild",
-    #         "rchild",
-    #         "nsamp",
-    #         "lsamp",
-    #         "rsamp",
-    #     )
-    #     for u in range(self.parent.shape[0]):
-    #         s += fmt.format(
-    #             u,
-    #             self.parent[u],
-    #             self.left_sib[u],
-    #             self.right_sib[u],
-    #             self.left_child[u],
-    #             self.right_child[u],
-    #             self.next_sample[u],
-    #             self.left_sample[u],
-    #             self.right_sample[u],
-    #         )
-    #     # Strip off trailing newline
-    #     s += str(self.mrca_start)
-    #     return s
+        for i in insertion:
+            if pos >= edges_left[i] and pos < edges_right[i]:
+                self.insert_edge(edges_parent[i], edges_child[i])
 
     def remove_edge(self, p, c):
         lsib = self.left_sib[c]
@@ -171,102 +150,6 @@ class Tree:
             self.right_sib[c] = -1
         self.right_child[p] = c
 
-    # def update_sample_list(self, parent):
-    #     # This can surely be done more efficiently and elegantly. We are iterating
-    #     # up the tree and iterating over all the siblings of the nodes we visit,
-    #     # rebuilding the links as we go. This results in visiting the same nodes
-    #     # over again, which if we have nodes with many siblings will surely be
-    #     # expensive. Another consequence of the current approach is that the
-    #     # next pointer contains an arbitrary value for the rightmost sample of
-    #     # every root. This should point to NULL ideally, but it's quite tricky
-    #     # to do in practise. It's easier to have a slightly uglier iteration
-    #     # over samples.
-    #     #
-    #     # In the future it would be good have a more efficient version of this
-    #     # algorithm using next and prev pointers that we keep up to date at all
-    #     # times, and which we use to patch the lists together more efficiently.
-    #     u = parent
-    #     while u != -1:
-    #         sample_index = self.sample_index_map[u]
-    #         if sample_index != -1:
-    #             self.right_sample[u] = self.left_sample[u]
-    #         else:
-    #             self.right_sample[u] = -1
-    #             self.left_sample[u] = -1
-    #         v = self.left_child[u]
-    #         while v != -1:
-    #             if self.left_sample[v] != -1:
-    #                 assert self.right_sample[v] != -1
-    #                 if self.left_sample[u] == -1:
-    #                     self.left_sample[u] = self.left_sample[v]
-    #                     self.right_sample[u] = self.right_sample[v]
-    #                 else:
-    #                     self.next_sample[self.right_sample[u]
-    #                                      ] = self.left_sample[v]
-    #                     self.right_sample[u] = self.right_sample[v]
-    #             v = self.right_sib[v]
-    #         u = self.parent[u]
-
-    # def _samples(self, u):
-    #     ret = []
-    #     x = self.left_sample[u]
-    #     if x != -1:
-    #         while True:
-    #             ret.append(x)
-    #             if x == self.right_sample[u]:
-    #                 break
-    #             x = self.next_sample[x]
-    #     return ret
-
-    # def _sibs(self, u):
-    #     sibs = []
-    #     p = self.parent[u]
-    #     if p != -1:
-    #         v = self.left_child[p]
-    #         while v != -1:
-    #             if v != u:
-    #                 sibs.append(v)
-    #             v = self.right_sib[v]
-    #     return sibs
-
-    # def start_mrca_pairs(self, u, v, pos):
-    #     for w in self._samples(u):
-    #         for x in self._samples(v):
-    #             assert x != w
-    #             self.mrca_start[x, w] = pos
-    #             self.mrca_start[w, x] = pos
-
-    # def start_mrcas(self, edge_parent, edge_child, pos):
-    #     u = edge_child
-    #     v = edge_parent
-    #     while v != -1:
-    #         for sib in self._sibs(u):
-    #             self.start_mrca_pairs(edge_child, sib, pos)
-    #         u = v
-    #         v = self.parent[v]
-
-    # def flush_mrca_pairs(self, mrca, u, v, pos):
-    #     t = self.nodes_time
-    #     s = self.samples
-    #     for w in self._samples(u):
-    #         for x in self._samples(v):
-    #             start = self.mrca_start[x, w]
-    #             distance = pos - start
-    #             path_bl = 2 * t[mrca] - t[s[x]] - t[s[w]]
-    #             area = path_bl * distance
-    #             self.divergence[w, x] += area
-    #             self.divergence[x, w] += area
-    #             assert x != w
-
-    # def flush_mrcas(self, edge_parent, edge_child, pos):
-    #     u = edge_child
-    #     v = edge_parent
-    #     while v != -1:
-    #         for sib in self._sibs(u):
-    #             self.flush_mrca_pairs(v, edge_child, sib, pos)
-    #         u = v
-    #         v = self.parent[v]
-
     def advance(self, indexes: TreeIndex, tree_index: int):
         sequence_length = self.sequence_length
         M = self.edges_left.shape[0]
@@ -281,7 +164,7 @@ class Tree:
         k = indexes.edge_removal_index[tree_index]
         left = indexes.tree_left[tree_index]
 
-        while j < M or left <= sequence_length:
+        if j < M or left <= sequence_length:
             while k < M and edges_right[out_order[k]] == left:
                 p = edges_parent[out_order[k]]
                 c = edges_child[out_order[k]]
@@ -291,7 +174,7 @@ class Tree:
             # TODO not sure if this is necessary or correct here, needs
             # to be validated. Note <= sequence_length above for left also.
             if k == M:
-                break
+                return
             while j < M and edges_left[in_order[j]] == left:
                 p = edges_parent[in_order[j]]
                 c = edges_child[in_order[j]]
@@ -308,9 +191,6 @@ class Tree:
             # yield left, right
             left = right
 
-            # NOTE: I am so lazy
-            break
-
 
 def make_tree_at_given_index(ts: tskit.TreeSequence, indexes: TreeIndex, tree_index: int) -> Tree:
     tree = Tree(
@@ -324,14 +204,7 @@ def make_tree_at_given_index(ts: tskit.TreeSequence, indexes: TreeIndex, tree_in
         edge_insertion_order=ts.indexes_edge_insertion_order,
         edge_removal_order=ts.indexes_edge_removal_order,
         sequence_length=ts.sequence_length)
-
-    insertion = ts.indexes_edge_insertion_order
-    pos = indexes.tree_left[tree_index]
-
-    for i in insertion:
-        if pos >= tree.edges_left[i] and pos < tree.edges_right[i]:
-            tree.insert_edge(tree.edges_parent[i], tree.edges_child[i])
-
+    tree.seek_to_index(indexes, tree_index)
     return tree
 
 
