@@ -37,38 +37,11 @@ spec = [
 
 
 @numba.experimental.jitclass(spec)
-class TreeIndex:
-    def __init__(self,
-                 edge_insertion_index,
-                 edge_removal_index,
-                 tree_left):
-        self.edge_insertion_index = edge_insertion_index
-        self.edge_removal_index = edge_removal_index
-        self.tree_left = tree_left
-
-
-def build_indexes(ts: tskit.TreeSequence) -> TreeIndex:
-    edge_insertion_index = np.full(ts.num_trees, -1, dtype=np.int32)
-    edge_removal_index = np.full(ts.num_trees, -1, dtype=np.int32)
-    tree_left = np.full(ts.num_trees, -1, dtype=np.float64)
-
-    insertion = 0
-    removal = 0
-    for (i, e) in enumerate(ts.edge_diffs()):
-        edge_insertion_index[i] = insertion
-        edge_removal_index[i] = removal
-        tree_left[i] = e.interval.left
-        removal += len([i for i in e.edges_out])
-        insertion += len([i for i in e.edges_in])
-
-    return TreeIndex(edge_insertion_index, edge_removal_index, tree_left)
-
-
-@numba.experimental.jitclass(spec)
 class Tree:
     def __init__(
         self,
         num_nodes,
+        num_trees,
         samples,
         nodes_time,
         edges_left,
@@ -102,6 +75,16 @@ class Tree:
         self.nodes_time = nodes_time
         self.samples = samples
 
+        # Keep the index internal to the Tree.
+        # In real life, we'd probably keep this in the treeseq
+        # for reuse.
+        self.edge_insertion_index = np.full(
+            num_trees, np.nan, dtype=np.int32)
+        self.edge_removal_index = np.full(num_trees, np.nan, dtype=np.int32)
+        self.tree_left = np.full(num_trees, np.nan, dtype=np.float64)
+
+        self.index()
+
         n = samples.shape[0]
         for j in range(n):
             u = samples[j]
@@ -109,17 +92,51 @@ class Tree:
             self.left_sample[u] = j
             self.right_sample[u] = j
 
-    def seek_to_index(self, indexes: TreeIndex, tree_index: int):
+    def seek_to_index(self, tree_index: int):
         insertion = self.edge_insertion_order
         edges_left = self.edges_left
         edges_right = self.edges_right
         edges_parent = self.edges_parent
         edges_child = self.edges_child
-        pos = indexes.tree_left[tree_index]
+        pos = self.tree_left[tree_index]
 
         for i in insertion:
             if pos >= edges_left[i] and pos < edges_right[i]:
                 self.insert_edge(edges_parent[i], edges_child[i])
+
+    def index(self):
+        edge_insertion_index = self.edge_insertion_index
+        edge_removal_index = self.edge_removal_index
+        tree_left = self.tree_left
+        sequence_length = self.sequence_length
+        M = self.edges_left.shape[0]
+        in_order = self.edge_insertion_order
+        out_order = self.edge_removal_order
+        edges_left = self.edges_left
+        edges_right = self.edges_right
+
+        j = 0
+        k = 0
+        left = 0.0
+        tree_index = 0
+
+        while j < M or left < sequence_length:
+            edge_insertion_index[tree_index] = j
+            edge_removal_index[tree_index] = k
+            tree_left[tree_index] = left
+            while k < M and edges_right[out_order[k]] == left:
+                k += 1
+            # if k == M:
+            #     return
+            while j < M and edges_left[in_order[j]] == left:
+                j += 1
+            right = sequence_length
+            if j < M:
+                right = min(right, edges_left[in_order[j]])
+            if k < M:
+                right = min(right, edges_right[out_order[k]])
+            left = right
+            tree_index += 1
 
     def remove_edge(self, p, c):
         lsib = self.left_sib[c]
@@ -150,7 +167,7 @@ class Tree:
             self.right_sib[c] = -1
         self.right_child[p] = c
 
-    def advance(self, indexes: TreeIndex, tree_index: int):
+    def advance(self, tree_index: int):
         sequence_length = self.sequence_length
         M = self.edges_left.shape[0]
         in_order = self.edge_insertion_order
@@ -160,9 +177,9 @@ class Tree:
         edges_parent = self.edges_parent
         edges_child = self.edges_child
 
-        j = indexes.edge_insertion_index[tree_index]
-        k = indexes.edge_removal_index[tree_index]
-        left = indexes.tree_left[tree_index]
+        j = self.edge_insertion_index[tree_index]
+        k = self.edge_removal_index[tree_index]
+        left = self.tree_left[tree_index]
 
         if j < M or left <= sequence_length:
             while k < M and edges_right[out_order[k]] == left:
@@ -192,9 +209,10 @@ class Tree:
             left = right
 
 
-def make_tree_at_given_index(ts: tskit.TreeSequence, indexes: TreeIndex, tree_index: int) -> Tree:
+def make_tree_at_given_index(ts: tskit.TreeSequence, tree_index: int) -> Tree:
     tree = Tree(
         ts.num_nodes,
+        ts.num_trees,
         samples=ts.samples(),
         nodes_time=ts.nodes_time,
         edges_left=ts.edges_left,
@@ -204,7 +222,7 @@ def make_tree_at_given_index(ts: tskit.TreeSequence, indexes: TreeIndex, tree_in
         edge_insertion_order=ts.indexes_edge_insertion_order,
         edge_removal_order=ts.indexes_edge_removal_order,
         sequence_length=ts.sequence_length)
-    tree.seek_to_index(indexes, tree_index)
+    tree.seek_to_index(tree_index)
     return tree
 
 
@@ -220,15 +238,20 @@ def compare_perf():
             recombination_rate=1e-8,
             random_seed=seed,
         )
-        indexes = build_indexes(ts)
+        # indexes = build_indexes(ts)
 
         for i in range(ts.num_trees):
             tsktree = tskit.Tree(ts)
             # I did not know about this!
+            before = time.perf_counter()
             tsktree.seek_index(i)
+            time_lib = time.perf_counter() - before
             assert tsktree.index == i
 
-            tree = make_tree_at_given_index(ts, indexes, i)
+            before = time.perf_counter()
+            tree = make_tree_at_given_index(ts, i)
+            time_prototype = time.perf_counter() - before
+            # print(i, ts.num_trees, time_lib, time_prototype)
             assert len(tsktree.parent_array) == len(tree.parent) + 1
             assert np.array_equal(
                 tree.parent, tsktree.parent_array[:ts.num_nodes]), \
@@ -243,7 +266,7 @@ def compare_perf():
             # FIXME: the laziness here is painful
             dummy = i + 1
             while tsktree.next():
-                tree.advance(indexes, dummy)
+                tree.advance(dummy)
                 assert np.array_equal(
                     tree.parent, tsktree.parent_array[:ts.num_nodes]), \
                     f"{tree.parent} != {tsktree.parent_array}"
