@@ -85,12 +85,12 @@ class Tree:
 
         self.index()
 
-        n = samples.shape[0]
-        for j in range(n):
-            u = samples[j]
-            self.sample_index_map[u] = j
-            self.left_sample[u] = j
-            self.right_sample[u] = j
+        # n = samples.shape[0]
+        # for j in range(n):
+        #     u = samples[j]
+        #     self.sample_index_map[u] = j
+        #     self.left_sample[u] = j
+        #     self.right_sample[u] = j
 
     def seek_to_index(self, tree_index: int):
         insertion = self.edge_insertion_order
@@ -98,6 +98,15 @@ class Tree:
         edges_right = self.edges_right
         edges_parent = self.edges_parent
         edges_child = self.edges_child
+
+        parent = self.parent
+        left_sib = self.left_sib
+        right_sib = self.right_sib
+
+        parent[:] = -1
+        left_sib[:] = -1
+        right_sib[:] = -1
+
         pos = self.tree_left[tree_index]
 
         for i in insertion:
@@ -251,7 +260,7 @@ def compare_perf():
             before = time.perf_counter()
             tree.seek_to_index(i)
             time_prototype = time.perf_counter() - before
-            # print(i, ts.num_trees, time_lib, time_prototype)
+            print(i, ts.num_trees, time_lib, time_prototype)
             assert len(tsktree.parent_array) == len(tree.parent) + 1
             assert np.array_equal(
                 tree.parent, tsktree.parent_array[:ts.num_nodes]), \
@@ -277,6 +286,9 @@ def compare_perf():
                     tree.right_child, tsktree.right_child_array[:ts.num_nodes]), \
                     f"{tree.right_child} != {tsktree.right_child_array}"
                 dummy += 1
+
+            # Init the tree back to tree i -- this should fail in general
+            tree.seek_to_index(i)
 
 
 if __name__ == "__main__":
